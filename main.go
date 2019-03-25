@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 
+	"github.com/rancher/system-tools/cert"
 	"github.com/rancher/system-tools/logs"
 	"github.com/rancher/system-tools/remove"
 	"github.com/rancher/system-tools/stats"
@@ -52,6 +53,12 @@ func main() {
 			Usage:  "show live system stats from cluster nodes",
 			Action: stats.DoStats,
 			Flags:  stats.StatsFlags,
+		},
+		cli.Command{
+			Name:   "cert-info",
+			Usage:  "certificates information for 2.2.x clusters",
+			Action: cert.DoInfo,
+			Flags:  cert.InfoFlags,
 		},
 	}
 
