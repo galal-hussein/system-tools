@@ -6,15 +6,17 @@ import (
 	"io/ioutil"
 
 	"github.com/rancher/rke/cluster"
+	"github.com/rancher/rke/hosts"
 	"github.com/rancher/rke/k8s"
+	"github.com/rancher/rke/pki"
 	"github.com/rancher/system-tools/clients"
 	"github.com/rancher/types/apis/management.cattle.io/v3"
 	"github.com/rancher/types/config"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli"
-	yaml "gopkg.in/yaml.v2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/util/cert"
 )
 
 const (
@@ -37,6 +39,7 @@ var InfoFlags = []cli.Flag{
 
 func DoInfo(ctx *cli.Context) error {
 	clusterName := ctx.String("cluster")
+	logrus.Infof("Check certificates Info for cluster [%s]", clusterName)
 	restConfig, err := clients.GetRestConfig(ctx)
 	if err != nil {
 		return err
@@ -54,6 +57,7 @@ func DoInfo(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
+	logrus.Infof("Get kubeconfig for cluster [%s]", clusterName)
 	// Get Cluster config
 	rkeConfig := cluster.Spec.RancherKubernetesEngineConfig
 	if rkeConfig == nil {
@@ -72,6 +76,7 @@ func DoInfo(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
+	logrus.Infof("Write temporary kubeconfig for cluster [%s]", clusterName)
 	if err := writeTempConfig(clusterKubeConfig, clusterName); err != nil {
 		return err
 	}
@@ -81,7 +86,10 @@ func DoInfo(ctx *cli.Context) error {
 		return err
 	}
 	clusterState, err := getClusterState(downstreamClient)
-	fmt.Println(clusterState)
+	if err != nil {
+		return err
+	}
+	showClusterCertificates(clusterState)
 	return nil
 }
 
@@ -104,9 +112,9 @@ func getClusterKubeConfig(k8sClient *kubernetes.Clientset, clusterName string) (
 func writeTempConfig(kubeconfig, clusterName string) error {
 	logrus.Debugf("Writing temporary kubeconfig file for cluster [%s]", clusterName)
 	if err := ioutil.WriteFile(KubeConfigTempPath, []byte(kubeconfig), 0640); err != nil {
-		return fmt.Errorf("Failed temporary kubeconfig file cluster [%s]: %v", clusterName, err)
+		return fmt.Errorf("Failed to wrute temporary kubeconfig file cluster [%s]: %v", clusterName, err)
 	}
-	logrus.Infof("Successfully temporary kubeconfig file for cluster [%s] at [%s]", clusterName, KubeConfigTempPath)
+	logrus.Infof("Successfully wrote temporary kubeconfig file for cluster [%s] at [%s]", clusterName, KubeConfigTempPath)
 	return nil
 }
 
@@ -115,11 +123,41 @@ func getClusterState(k8sClient *kubernetes.Clientset) (*cluster.FullState, error
 	if err != nil {
 		return nil, err
 	}
-	fullState := &cluster.FullState{}
+	fullState := cluster.FullState{}
 	fullStateDate := fullStateConfigMap.Data[FullStateConfigMapName]
-	err = yaml.Unmarshal([]byte(fullStateDate), &fullState)
+	err = json.Unmarshal([]byte(fullStateDate), &fullState)
 	if err != nil {
 		return nil, fmt.Errorf("Failed to unmarshal cluster state")
 	}
-	return fullState, nil
+	return &fullState, nil
+}
+
+func showClusterCertificates(clusterState *cluster.FullState) error {
+	componentsCerts := []string{
+		pki.KubeAPICertName,
+		pki.KubeControllerCertName,
+		pki.KubeSchedulerCertName,
+		pki.KubeProxyCertName,
+		pki.KubeNodeCertName,
+		pki.KubeAdminCertName,
+		pki.RequestHeaderCACertName,
+		pki.APIProxyClientCertName,
+	}
+	etcdHosts := hosts.NodesToHosts(clusterState.CurrentState.RancherKubernetesEngineConfig.Nodes, "etcd")
+	for _, host := range etcdHosts {
+		etcdName := pki.GetEtcdCrtName(host.InternalAddress)
+		componentsCerts = append(componentsCerts, etcdName)
+	}
+	for _, component := range componentsCerts {
+		componentCert := clusterState.CurrentState.CertificatesBundle[component]
+		if componentCert.CertificatePEM != "" {
+			certificates, err := cert.ParseCertsPEM([]byte(componentCert.CertificatePEM))
+			if err != nil {
+				return fmt.Errorf("failed to read certificate [%s]: %v", component, err)
+			}
+			certificate := certificates[0]
+			logrus.Infof("Certificate [%s] has expiration date: [%v]", component, certificate.NotAfter)
+		}
+	}
+	return nil
 }
