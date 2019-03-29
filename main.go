@@ -55,10 +55,22 @@ func main() {
 			Flags:  stats.StatsFlags,
 		},
 		cli.Command{
-			Name:   "cert-info",
-			Usage:  "certificates information for 2.2.x clusters",
-			Action: cert.DoInfo,
-			Flags:  cert.InfoFlags,
+			Name:  "cert",
+			Usage: "certificate operations for downstream clusters",
+			Subcommands: cli.Commands{
+				cli.Command{
+					Name:   "info",
+					Usage:  "certificates information for 2.2.x clusters",
+					Action: cert.DoInfo,
+					Flags:  cert.CertFlags,
+				},
+				cli.Command{
+					Name:   "rotate",
+					Usage:  "rotate certificates for 2.1.x and 2.0.x clusters",
+					Action: cert.DoRotate,
+					Flags:  cert.CertFlags,
+				},
+			},
 		},
 	}
 

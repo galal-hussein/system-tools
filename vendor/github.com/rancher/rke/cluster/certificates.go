@@ -170,9 +170,14 @@ func RotateRKECertificates(ctx context.Context, c *Cluster, flags ExternalFlags,
 		rotateFlags.Services = nil
 	}
 	for _, k8sComponent := range rotateFlags.Services {
+		rotate := true
 		genFunc := componentsCertsFuncMap[k8sComponent]
 		if genFunc != nil {
-			if err := genFunc(ctx, c.Certificates, c.RancherKubernetesEngineConfig, flags.ClusterFilePath, flags.ConfigDir, true); err != nil {
+			if flags.Legacy && k8sComponent == services.KubeAPIContainerName {
+				// rotate kubeapi with the same key to avoid conflicts in legacy clusters in rancher 2.0.x and 2.1.x
+				rotate = false
+			}
+			if err := genFunc(ctx, c.Certificates, c.RancherKubernetesEngineConfig, flags.ClusterFilePath, flags.ConfigDir, rotate); err != nil {
 				return err
 			}
 		}
@@ -183,7 +188,7 @@ func RotateRKECertificates(ctx context.Context, c *Cluster, flags ExternalFlags,
 		if c.Certificates[pki.ServiceAccountTokenKeyName].Key != nil {
 			serviceAccountTokenKey = string(cert.EncodePrivateKeyPEM(c.Certificates[pki.ServiceAccountTokenKeyName].Key))
 		}
-		if err := pki.GenerateRKEServicesCerts(ctx, c.Certificates, c.RancherKubernetesEngineConfig, flags.ClusterFilePath, flags.ConfigDir, true); err != nil {
+		if err := pki.GenerateRKEServicesCerts(ctx, c.Certificates, c.RancherKubernetesEngineConfig, flags.ClusterFilePath, flags.ConfigDir, true, flags.Legacy); err != nil {
 			return err
 		}
 		if serviceAccountTokenKey != "" {
